@@ -1,0 +1,449 @@
+---
+title: "Visualizing Paired Likert Data"
+author: "Meghan Duffy"
+date: "1/23/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Exploration of different ways to visualize repeated measures (or other paired) Likert data
+
+This project started based on trying to think through different ways of plotting paired Likert data. This is for a project that is analyzing student views on climate change and how they change over the course of the semester. Here, I am sharing a subset of the data from that original analysis (this only has one semester of the data, and only a subset of the questions and responses), plus code for visualizing the data in different ways.
+
+This all comes with the warning that the code below is not necessarily elegant! There may be better ways of doing this, and there are surely more efficient ways. But this is what I did.
+
+```{r, load libraries}
+library(tidyverse)
+library(cowplot)
+library(likert)
+library(ggmosaic)
+
+library(lattice) # using this for the heat map for now
+```
+
+```{r, load data}
+ccdata <- read.csv("ccsurvey_F17_v2.csv", na.strings = "NA")
+#check names of columns:
+colnames(ccdata)
+
+#subset data to just include students who took both surveys
+cctookboth <- subset(ccdata, took_pre_CC == 1 & took_post_CC == 1)
+
+#also subset data to exclude students who didn't answer both validation questions correctly
+cctookboth <- subset(cctookboth, CC_Validation_pre == "SomewhatAgree" & CC_Validation_post == "SomewhatAgree")
+```
+
+## How do student views on whether climate change is happening change over the course of the semester?
+
+### General patterns: Do students think climate change is happening? Does that change over the semester?
+Students were asked: Do you think that climate change is happening?
+Response options:
+- Yes, and I'm extremely sure
+- Yes, and I'm very sure
+- Yes, and I'm somewhat sure
+- Yes, but I'm not at all sure
+- No, and I'm extremely sure
+- No, and I'm very sure
+- No, and I'm somewhat sure
+- No, but I'm not at all sure
+- I don't know
+
+We asked students whether they think climate change is happening at the beginning and end of the semester. Let's start with analyzing the aggregate data to see the overall patterns.
+
+```{r, make a basic bar chart of the data on student views on whether climate change is happening}
+CCHappeningPre <- cctookboth$CC_Happening_pre
+CCHappeningPre <- as.data.frame(CCHappeningPre)
+names(CCHappeningPre)[1] = c("Answer")
+
+CCHappeningPost <- cctookboth$CC_Happening_post
+CCHappeningPost <- as.data.frame(CCHappeningPost)
+names(CCHappeningPost)[1] = c("Answer")
+
+CCHappeningPre$prepost <- rep("beginning",nrow(CCHappeningPre))
+CCHappeningPost$prepost <- rep("end",nrow(CCHappeningPost))
+
+CCHappeningDataBind <- bind_rows(CCHappeningPre,CCHappeningPost)
+
+#Get rid of rows with missing data
+CCHappeningDataBind <- CCHappeningDataBind %>%
+  subset(Answer != "")
+
+#Put the answers in the right order
+CCHappeningDataBind$Answer <- factor(CCHappeningDataBind$Answer, 
+                                            c("NoExtrSure",
+                                              "NoVerySure",
+                                              "NoSomeSure",
+                                              "NoNotSure",
+                                              "DK",
+                                              "YesNotSure",
+                                              "YesSomeSure",
+                                              "YesVerySure", 
+                                              "YesExtrSure"))
+
+#Put the 
+CCHappeningDataBind$prepost <- factor(CCHappeningDataBind$prepost, 
+                                            c("beginning",
+                                              "end"))
+
+CCHappeningPrePostPlotGrid <- ggplot(CCHappeningDataBind, aes(x=Answer)) +
+    geom_bar(position="identity") +
+  facet_wrap(~prepost, nrow = 2) +
+  ggtitle("Do you think climate change is happening?") +
+  theme_bw() +
+  ylab("Number of responses")
+
+CCHappeningPrePostPlotGrid
+```
+
+
+We could make those x-axis labels neater, but we're probably not going to use this plot, so let's move on. Would it be easier to compare if we plot things side-by-side?
+
+```{r, side-by-side bar plot}
+
+CCHappeningPrePostPlotSideBySide <- ggplot(CCHappeningDataBind, aes(x=Answer,fill=prepost)) +
+    geom_bar(position = position_dodge2(preserve="single")) +
+  theme_bw()
+
+CCHappeningPrePostPlotSideBySide
+```
+
+
+Again, that could use more work if we were going to use it, but we're not, so let's move on.
+
+Let's use the likert package, which makes really pretty figures:
+```{r, likert plot of student views on whether climate change is happening}
+cchappeningresponses <- CCHappeningDataBind %>%
+  select(Answer)
+
+# reverse order the pre vs. post so that "beginning" will end up on the top in the resulting plot
+CCHappeningDataBind$prepost <- factor(CCHappeningDataBind$prepost, c("end","beginning"))
+
+# rename the responses so that the plot looks better
+cchappeningresponses$Answer <- plyr::mapvalues(cchappeningresponses$Answer, from = c("YesExtrSure",
+                                              "YesVerySure", 
+                                              "YesSomeSure",
+                                              "YesNotSure",
+                                              "DK",
+                                              "NoSomeSure"), 
+                                              to = c("Yes, extremely sure",
+                                                     "Yes, very sure",
+                                                     "Yes, somewhat sure",
+                                                     "Yes, but not sure",
+                                                     "I don't know",
+                                                     "No, somewhat sure"))
+
+# order the responses
+cchappeningresponses$Answer <- factor(cchappeningresponses$Answer, 
+                                 c("No, extremely sure",
+                                   "No, very sure",
+                                   "No, somewhat sure",
+                                    "No, but not sure",
+                                    "I don't know",
+                                    "Yes, but not sure",
+                                    "Yes, somewhat sure",
+                                    "Yes, very sure",
+                                    "Yes, extremely sure"))
+
+cchappeningresponses_grouping <- CCHappeningDataBind %>%
+  select(prepost)
+
+counts = CCHappeningDataBind %>%
+  count(prepost) %>%
+  mutate(variable=NA)
+
+colnames(cchappeningresponses)[1] <- "Do you think climate change is happening?"
+likert_cchappening <- likert(cchappeningresponses, grouping = cchappeningresponses_grouping$prepost)
+
+
+cchappeninglikertplot = plot(likert_cchappening,legend.position="bottom",text.size=4) + 
+  scale_y_continuous(limits=c(-100,150)) +
+  coord_flip(ylim=c(-110,110)) +
+  theme(strip.text = element_text(margin=margin(4, 0, 4, 0),size=18)) 
+
+
+cchappeninglikertplot <- ggplot_gtable(ggplot_build(cchappeninglikertplot))
+cchappeninglikertplot$layout$clip <- "off"
+cchappeninglikertplot.mpg <- plot(cchappeninglikertplot)
+
+plot(cchappeninglikertplot)
+
+save_plot("cchappeninglikertplot.jpg", cchappeninglikertplot, base_width = 12, base_height = 5)
+```
+
+
+That's definitely the best of the visualizations of the aggregate data! Let's move on to try to get a sense for how views of individual students changed.
+
+### Individual level changes
+We were also curious about how individual students changed. Do some change a lot? Do some become less sure that climate change is happening? We can't tell that from the previous plots. Let's explore different ways of visualizing the data in a way that lets us compare how a single student answered at the beginning vs. end of the semester.
+
+Because I am an evolutionary ecologist by training, and because evolutionary ecologists love reaction norm plots (a.k.a. paired line plots), the first thing I tried was a paired line plot.
+
+```{r, how did individual views on whether climate change is happening change during semester}
+cchappeningwide <- dplyr::select(cctookboth, CC_Happening_pre, CC_Happening_post)
+
+cchappeningwide$ID <- seq.int(nrow(cchappeningwide))
+
+cchappeninglong <- cchappeningwide %>%
+#  filter(CC_Happening_pre != "NA" & CC_Happening_post != "NA" ) %>%
+  gather(PrevPost,CCHappening,CC_Happening_pre:CC_Happening_post)
+
+cchappeninglong$CCHappening01 <-  plyr::mapvalues(cchappeninglong$CCHappening, from = c("NoExtrSure", "NoVerySure","NoSomeSure","NoNotSure","DK","YesNotSure","YesSomeSure","YesVerySure","YesExtrSure"), to = c(1,2,3,4,5,6,7,8,9))
+
+cchappeninglong$CCHappening01 <- as.numeric(as.character(cchappeninglong$CCHappening01))
+
+cchappeninglong$PrevPost <- plyr::mapvalues(cchappeninglong$PrevPost, from = c("CC_Happening_pre","CC_Happening_post"), to = c("Beginning", "End"))
+
+cchappeninglong$PrevPost <- factor(cchappeninglong$PrevPost, levels=c("Beginning", "End"))
+
+cchappeningrxnplot <- cchappeninglong %>%
+  ggplot(aes(x=PrevPost, y=CCHappening01, group=ID)) +
+  geom_line(position=position_jitter(w=0.02, h=0.02),alpha=0.3) +
+  ggtitle("Paired responses (each line is a single student)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab("Time of semester") +
+  ylab("Is climate change happening? \n(1 = No, and I'm extremely sure, \n9 = Yes, and I'm extremely sure)") +
+  theme_bw()
+
+cchappeningrxnplot
+
+
+save_plot("cchappeningrxnplot.jpg", cchappeningrxnplot, base_width = 6, base_height = 4)
+```
+
+For that plot, student responses at the beginning and end of the semester are connected by a line. Lines are partially transparent and slightly jittered, so lines that appear darker and thicker represent more common combinations of responses. This figure lets us see that most students became more sure or stayed equally sure (that is, most lines go up or are flat). Some students make very large leaps (a line with a large slope), and a few students become less certain (as indicated by a line with a negative slope).
+
+I like that way of visualizing the data, but wanted to explore others. I originally tried making a heat map. My first attempt at that failed, but led me to this plot instead, which I also like.
+
+```{r, jittered dot plot figure of cchappening data}
+cchappeningwide <- dplyr::select(cctookboth, CC_Happening_pre, CC_Happening_post)
+
+cchappeningwide <- cchappeningwide %>%
+  subset(CC_Happening_pre != "NA" & CC_Happening_post != "" )
+
+cchappeningwide$CC_Happening_pre <- plyr::mapvalues(cchappeningwide$CC_Happening_pre, from = c("YesExtrSure",
+                                              "YesVerySure", 
+                                              "YesSomeSure",
+                                              "YesNotSure",
+                                              "DK",
+                                              "NoSomeSure"), 
+                                              to = c("Yes, extremely sure",
+                                                     "Yes, very sure",
+                                                     "Yes, somewhat sure",
+                                                     "Yes, but not sure",
+                                                     "I don't know",
+                                                     "No, somewhat sure"))
+
+cchappeningwide$CC_Happening_post <- plyr::mapvalues(cchappeningwide$CC_Happening_post, from = c("YesExtrSure",
+                                              "YesVerySure", 
+                                              "YesSomeSure",
+                                              "YesNotSure",
+                                              "DK",
+                                              "NoSomeSure"), 
+                                              to = c("Yes, extremely sure",
+                                                     "Yes, very sure",
+                                                     "Yes, somewhat sure",
+                                                     "Yes, but not sure",
+                                                     "I don't know",
+                                                     "No, somewhat sure"))
+
+cchappeningwide$CC_Happening_pre <- factor(cchappeningwide$CC_Happening_pre, 
+                                 c("No, somewhat sure",
+                                  "I don't know",
+                                  "Yes, but not sure",
+                                  "Yes, somewhat sure",
+                                  "Yes, very sure",
+                                  "Yes, extremely sure"))
+
+cchappeningwide$CC_Happening_post <- factor(cchappeningwide$CC_Happening_post, 
+                                 c("No, somewhat sure",
+                                  "I don't know",
+                                  "Yes, but not sure",
+                                  "Yes, somewhat sure",
+                                  "Yes, very sure",
+                                  "Yes, extremely sure"))
+
+
+correlationplot <- ggplot(cchappeningwide, aes(x=CC_Happening_pre, y=CC_Happening_post)) +
+  geom_jitter(alpha=0.3) +
+  ggtitle("Paired responses (each point is a single student)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab("Response at beginning of semester") +
+  ylab("Response at end of semester") +
+  theme_bw()
+
+correlationplot
+
+save_plot("correlationplot.jpg", correlationplot, base_width = 8, base_height = 6)
+```
+
+That also makes it pretty clear that most students start out very sure or extremely sure and end up extremely sure that climate change is occurring. One thing I like about this visualization is that I think it makes it clearer that there's a ceiling on how high the responses go. I don't think that was as clear from the earlier paired line plot. (I'd started this before my first blog post on paired line plots, but didn't get the above into that post. I was encouraged to see this style plot recommended on twitter by C. Savio Chan.)
+
+On twitter, Hadley Wickham asked if I'd tried a mosaic plot. I hadn't heard of them before, but agree they're worth trying. 
+
+```{r, code for a mosaic plot}
+mosaicplot <- ggplot(data = cchappeningwide) +
+   geom_mosaic(aes(x = product(CC_Happening_post, CC_Happening_pre), fill=CC_Happening_post), na.rm=TRUE) + 
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+  labs(x = "Response at beginning of semester", y = "Response at end of semester") +
+  guides(fill=guide_legend(title="Response at end of semester"))
+
+mosaicplot
+
+
+save_plot("mosaicplot.jpg", mosaicplot, base_width = 12, base_height = 10)
+```
+
+```{r, trying a heat map}
+cchappeningwide <- cctookboth %>%
+  subset(CC_Happening_pre != "" & CC_Happening_post != "") %>%
+  select(CC_Happening_pre, CC_Happening_post)
+
+# Set response options
+options <- c("NoExtrSure", "NoVerySure","NoSomeSure","NoNotSure","DK","YesNotSure","YesSomeSure","YesVerySure","YesExtrSure")
+n_options <- length(options)
+
+# Create new dataframe to plot CC_Happening data as heatmap
+df_cc_happening <- matrix(nrow=n_options, ncol=n_options)
+for (i in 1:nrow(df_cc_happening)) {
+  for (j in 1:ncol(df_cc_happening)) {
+    df_cc_happening[i,j] <- sum(cchappeningwide$CC_Happening_pre == options[i] & cchappeningwide$CC_Happening_post == options[j])
+  }
+}
+
+# Plot heatmap for CC_Happening Question
+xylabels <- c("No\nExtr\nSure", "No\nVery\nSure","No\nSome\nSure","No\nNot\nSure","DK","Yes\nNot\nSure","Yes\nSome\nSure","Yes\nVery\nSure","Yes\nExtr\nSure")
+
+heatmapplot <- levelplot(df_cc_happening, at=seq(0,max(df_cc_happening),1), 
+		  col.regions=colorRampPalette(c("white","blue")),
+		  xlab="Beginning of Semester Response", ylab="End of Semester Response",
+		  scales=(list(labels=xylabels, at = seq(1,9,1))),
+		  main = "Is climate change happening?"
+		  )
+
+heatmapplot
+
+trellis.device(device="jpeg", file="heatmapplot.jpeg")
+print(heatmapplot)
+dev.off()
+```
+
+
+# What about different data, where things are maybe messier? Let's compare student responses related to changing their minds.
+
+At the beginning of the semester, we asked students about whether they thought they could change their minds about climate change. At the end of the semester, we asked whether the course had changed their minds. Were those responses correlated?
+
+Let's start with a paired line plot:
+
+```{r, paired line plot comparing pre-change mind and post changed me responses}
+ccchangewide <- dplyr::select(cctookboth, CC_ChangeMind_pre, CC_ChangedMe_post)
+
+ccchangewide$ID <- seq.int(nrow(ccchangewide))
+
+ccchangelong <- ccchangewide %>%
+#  filter(CC_Happening_pre != "NA" & CC_Happening_post != "NA" ) %>%
+  gather(PrevPost,CCChange,CC_ChangeMind_pre:CC_ChangedMe_post)
+
+ccchangelong$CCChange01 <-  plyr::mapvalues(ccchangelong$CCChange, from = c("StronglyDisagree", "SomewhatDisagree","Neither","SomewhatAgree","StronglyAgree"), to = c(1,2,3,4,5))
+
+ccchangelong$CCChange01 <- as.numeric(as.character(ccchangelong$CCChange01))
+
+ccchangelong$PrevPost <- plyr::mapvalues(ccchangelong$PrevPost, from = c("CC_ChangeMind_pre","CC_ChangedMe_post"), to = c("beginning", "end"))
+
+ccchangelong$PrevPost <- factor(ccchangelong$PrevPost, levels=c("beginning", "end"))
+
+ccchangerxnplot <- ccchangelong %>%
+  ggplot(aes(x=PrevPost, y=CCChange01, group=ID)) +
+  geom_line(position=position_jitter(w=0.02, h=0.02),alpha=0.3) +
+  ggtitle("Paired responses for pre-survey question on whether they could \neasily change their mind and post-survey question on whether the \ncourse changed how they think") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab("Survey timing") +
+  ylab("1 = Strongly Disagree, 5 = Strongly Agree") +
+  theme_bw()
+
+ccchangerxnplot
+
+save_plot("ccchangerxnplot.jpg", ccchangerxnplot, base_width = 6, base_height = 4)
+```
+
+```{r, jittered dot plot figure of changing mind data}
+ccchangewide <- dplyr::select(cctookboth, CC_ChangeMind_pre, CC_ChangedMe_post)
+
+ccchangewide <- ccchangewide %>%
+  subset(CC_ChangeMind_pre != "NA" & CC_ChangedMe_post != "" )
+
+ccchangewide$CC_ChangeMind_pre <- plyr::mapvalues(ccchangewide$CC_ChangeMind_pre, from = c("StronglyDisagree", "SomewhatDisagree","Neither","SomewhatAgree","StronglyAgree"), 
+                                              to = c("Strongly Disagree", "Somewhat Disagree","Neither","Somewhat Agree","Strongly Agree"))
+
+ccchangewide$CC_ChangedMe_post <- plyr::mapvalues(ccchangewide$CC_ChangedMe_post, from = c("StronglyDisagree", "SomewhatDisagree","Neither","SomewhatAgree","StronglyAgree"), 
+                                              to = c("Strongly Disagree", "Somewhat Disagree","Neither","Somewhat Agree","Strongly Agree"))
+
+ccchangewide$CC_ChangeMind_pre <- factor(ccchangewide$CC_ChangeMind_pre, 
+                                 c("Strongly Disagree", "Somewhat Disagree","Neither","Somewhat Agree","Strongly Agree"))
+
+ccchangewide$CC_ChangedMe_post <- factor(ccchangewide$CC_ChangedMe_post, 
+                                 c("Strongly Disagree", "Somewhat Disagree","Neither","Somewhat Agree","Strongly Agree"))
+
+
+changecorrelationplot <- ggplot(ccchangewide, aes(x=CC_ChangeMind_pre, y=CC_ChangedMe_post)) +
+  geom_jitter(alpha=0.3) +
+  ggtitle("Paired responses (each point is a single student)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab("Response at beginning of semester") +
+  ylab("Response at end of semester") +
+  theme_bw()
+
+changecorrelationplot
+
+save_plot("changecorrelationplot.jpg", changecorrelationplot, base_width = 8, base_height = 6)
+```
+
+
+
+```{r, code for a mosaic plot on change data}
+changemosaicplot <- ggplot(data = ccchangewide) +
+   geom_mosaic(aes(x = product(CC_ChangedMe_post, CC_ChangeMind_pre), fill=CC_ChangedMe_post), na.rm=TRUE) + 
+  theme(axis.text.x = element_text(angle = 45, hjust=1)) +
+  labs(x = "Response at beginning of semester", y = "Response at end of semester") +
+  guides(fill=guide_legend(title="Response at end of semester"))
+
+changemosaicplot
+
+
+save_plot("changemosaicplot.jpg", changemosaicplot, base_width = 12, base_height = 10)
+```
+
+```{r, trying a heat map for the change data}
+ccchangewide <- cctookboth %>%
+  subset(CC_ChangeMind_pre != "" & CC_ChangedMe_post != "") %>%
+  select(CC_ChangeMind_pre, CC_ChangedMe_post)
+
+# Set response options
+options <- c("StronglyDisagree", "SomewhatDisagree","Neither","SomewhatAgree","StronglyAgree")
+n_options <- length(options)
+
+# Create new dataframe to plot CC_Happening data as heatmap
+df_cc_change <- matrix(nrow=n_options, ncol=n_options)
+for (i in 1:nrow(df_cc_change)) {
+  for (j in 1:ncol(df_cc_change)) {
+    df_cc_change[i,j] <- sum(ccchangewide$CC_ChangeMind_pre == options[i] & ccchangewide$CC_ChangedMe_post == options[j])
+  }
+}
+
+# Plot heatmap for CC_Happening Question
+xlabels <- c("Strongly\nDisagree", "Somewhat\nDisagree","Neither","Somewhat\nAgree","Strongly\nAgree")
+
+changeheatmapplot <- levelplot(df_cc_change, at=seq(0,max(df_cc_change),1), 
+		  col.regions=colorRampPalette(c("white","blue")),
+		  xlab="Beginning of Semester Response", ylab="End of Semester Response",
+		  scales=(list(labels=xylabels, at = seq(1,5,1))),
+		  main = "Could you/did you change your views?"
+		  )
+
+changeheatmapplot
+```
+
+
+Ideally I would make the heatmap in ggplot, but I haven't figure that out yet. More for later!
