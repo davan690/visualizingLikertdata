@@ -267,7 +267,7 @@ cchappeningwide$CC_Happening_post <- factor(cchappeningwide$CC_Happening_post,
 
 
 correlationplot <- ggplot(cchappeningwide, aes(x=CC_Happening_pre, y=CC_Happening_post)) +
-  geom_jitter(alpha=0.3) +
+  geom_jitter(width = 0.2, height = 0.2, alpha=0.3) +
   ggtitle("Paired responses (each point is a single student)") +
   theme(plot.title = element_text(hjust = 0.5)) +
   xlab("Response at beginning of semester") +
@@ -388,7 +388,7 @@ ccchangewide$CC_ChangedMe_post <- factor(ccchangewide$CC_ChangedMe_post,
 
 
 changecorrelationplot <- ggplot(ccchangewide, aes(x=CC_ChangeMind_pre, y=CC_ChangedMe_post)) +
-  geom_jitter(alpha=0.3) +
+  geom_jitter(width = 0.2, height = 0.2, alpha=0.3) +
   ggtitle("Paired responses (each point is a single student)") +
   theme(plot.title = element_text(hjust = 0.5)) +
   xlab("Response at beginning of semester") +
